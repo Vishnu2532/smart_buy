@@ -1,0 +1,126 @@
+{
+  "project_identity": {
+    "name": "SMART BUY - Real Data Shopping Intelligence & Price Analytics",
+    "core_philosophy": "Zero Fake Data. Every price, seller, review, and rating is pulled directly from live SerpAPI Google Shopping and real web observation records. If data is missing or sparse, we display honest empty states instead of generated mock data.",
+    "aesthetic_archetype": "Swiss Financial-Analyst Dashboard meets High-Trust Consumer Intelligence. Clean typography, precision grid system, monochrome base with tactical signal badges (Emerald for deals, Amber for provenance, Crimson for price spikes).",
+    "forbidden_elements": [
+      "AI Purple Gradient Slop (#7351B7)",
+      "Fake or hardcoded mock products/reviews in production views",
+      "Overly rounded squishy bubble UI",
+      "Generic centered cards without data hierarchy",
+      "Unanchored full-screen backdrop gradients"
+    ]
+  },
+  "typography": {
+    "font_family_heading": "Cabinet Grotesk, Outfit, system-ui, sans-serif",
+    "font_family_body": "Plus Jakarta Sans, Inter, system-ui, sans-serif",
+    "font_family_numeric_code": "JetBrains Mono, Roboto Mono, monospace",
+    "file_extension_notice": "Note: Project uses .js / .jsx React files (not .tsx). Always write standard JSX without TypeScript type annotations.",
+    "scale": {
+      "h1_hero": "text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight",
+      "h2_section": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100",
+      "h3_card_title": "text-lg sm:text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100",
+      "subtitle": "text-base sm:text-lg text-slate-600 dark:text-slate-400 leading-relaxed",
+      "body": "text-sm sm:text-base text-slate-700 dark:text-slate-300 leading-normal",
+      "caption": "text-xs font-medium text-slate-500 dark:text-slate-400 tracking-wider uppercase",
+      "price_highlight": "font-mono font-bold text-2xl sm:text-3xl tracking-tight text-emerald-600 dark:emerald-400"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background_light": "#F8FAFC",
+      "surface_light": "#FFFFFF",
+      "border_light": "#E2E8F0",
+      "text_primary_light": "#0F172A",
+      "text_secondary_light": "#475569",
+      "background_dark": "#0B0F17",
+      "surface_dark": "#111827",
+      "border_dark": "#1F2937",
+      "text_primary_dark": "#F9FAFB",
+      "text_secondary_dark": "#9CA3AF"
+    },
+    "provenance_and_signals": {
+      "live_data_badge": {
+        "bg": "bg-emerald-50 dark:bg-emerald-950/40",
+        "border": "border-emerald-200 dark:border-emerald-800/60",
+        "text": "text-emerald-700 dark:text-emerald-300",
+        "dot": "bg-emerald-500 animate-pulse"
+      },
+      "stored_data_badge": {
+        "bg": "bg-amber-50 dark:bg-amber-950/40",
+        "border": "border-amber-200 dark:border-amber-800/60",
+        "text": "text-amber-700 dark:text-amber-300"
+      },
+      "great_deal": {
+        "bg": "bg-emerald-600 text-white",
+        "label": "Great Deal (Below Avg)"
+      },
+      "good_price": {
+        "bg": "bg-teal-600 text-white",
+        "label": "Good Price"
+      },
+      "above_average": {
+        "bg": "bg-rose-600 text-white",
+        "label": "Above Average"
+      },
+      "insufficient_history": {
+        "bg": "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300",
+        "label": "Insufficient History"
+      }
+    },
+    "currency_format": {
+      "symbol": "₹",
+      "locale": "en-IN",
+      "rule": "Always render prices in Indian Rupees (INR) with standard Indian comma formatting (e.g. ₹49,999)."
+    }
+  },
+  "visual_enhancers": {
+    "surface_cards": "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200",
+    "provenance_banner": "border-l-4 border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20 p-4 rounded-r-lg border-y border-r border-amber-200 dark:border-amber-900/40",
+    "table_header": "bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-mono text-xs uppercase tracking-wider p-3",
+    "glass_header": "sticky top-0 z-50 backdrop-blur-md bg-white/85 dark:bg-slate-950/85 border-b border-slate-200/80 dark:border-slate-800/80"
+  },
+  "grids_and_layouts": {
+    "hero_layout": "grid grid-cols-1 lg:grid-cols-12 gap-8 items-center py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto",
+    "search_results_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6",
+    "product_detail_grid": "grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-7xl mx-auto py-8 px-4 sm:px-6",
+    "comparison_grid": "grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 max-w-6xl mx-auto"
+  },
+  "component_guidelines": {
+    "search_bar": "Prominent, crisp input with live suggestions from SerpAPI search history, clear submit button, filters toggle, and dataset indicator tag.",
+    "provenance_badge": "Must display API source ('Google Shopping via SerpAPI'), timestamp ('Updated X mins ago'), and status badge ('Live Data' vs 'Cached Observation').",
+    "price_history_chart": "Render using Recharts LineChart. If observation count < 2, display honest state banner: 'Only 1 historical price recorded so far. Price trend chart activates when multiple observations are captured over time.'",
+    "ai_review_analysis": "Powered by Gemini analyzing ONLY real fetched reviews. If real review count < 2, display: 'Insufficient review data for AI analysis. Requires at least 2 real customer reviews.'",
+    "seller_tags": "Highlight authentic Indian retail sellers (e.g., Flipkart, Amazon India, Croma, Reliance Digital, Tata CLiQ) with store links and price verification badge.",
+    "empty_states": "Honest, transparent UI blocks with clear explanations: 'No real products matching criteria found on Google Shopping', 'No historical observations yet'."
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200",
+    "reduced_motion": "respect prefers-reduced-motion CSS query"
+  },
+  "accessibility_and_testing": {
+    "contrast": "APCA & WCAG AA compliant. High contrast text on dark/light surfaces.",
+    "test_attributes": "EVERY interactive element (buttons, inputs, filters, product cards, compare toggles, review tabs) MUST include data-testid attributes (e.g. data-testid='search-input', data-testid='product-card-123', data-testid='compare-button')."
+  },
+  "media": {
+    "gadgets_tech_image": "https://images.unsplash.com/photo-1546435770-a3e426bf472b?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "electronics_shopping_analysis": "https://images.unsplash.com/photo-1674027392857-9aed6e8ecab9?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "store_browsing_image": "https://images.unsplash.com/photo-1761494296583-99b15e9063c5?crop=entropy&cs=srgb&fm=jpg&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Build SMART BUY using React JavaScript (.js / .jsx files). Do NOT output TypeScript definition files.",
+    "Maintain strict adherence to REAL DATA principles. Never seed or generate fake product listings, prices, or reviews.",
+    "Wrap all live SerpAPI and Gemini calls with clear loading states and truthful error / empty state handlers.",
+    "Format all monetary values using Indian Rupees symbol (₹) and Indian currency numbering convention.",
+    "Attach data-testid attributes to all buttons, input fields, selects, tabs, cards, and data badges for automated test suites.",
+    "Ensure navigation bar is sticky with backdrop blur and contains links for Home, Search, Compare, AI Recommendation, and Recent Price History."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Avoid generic centered templates and purple AI gradients (#7351B7 is strictly forbidden).",
+    "Use 2-3x generous spacing for analytical clarity.",
+    "Layer cards with crisp 1px borders and subtle background tinting.",
+    "All interactive elements must have micro-interactions and explicit text hover colors.",
+    "Sonner toasts located at /app/src/components/ui/sonner.tsx should be used for notifications."
+  ]
+}
