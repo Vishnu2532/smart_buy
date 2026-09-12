@@ -1,10 +1,19 @@
 import { useState } from "react";
-import { Sparkles, Loader2, ArrowRight } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { api, formatINR, relativeTime } from "@/lib/api";
+import { api, relativeTime } from "@/lib/api";
 import EmptyState from "@/components/EmptyState";
-import ProvenanceBadge from "@/components/ProvenanceBadge";
+import SourceBadge from "@/components/ProvenanceBadge";
+import PriceBadge from "@/components/PriceBadge";
+import RatingDisplay from "@/components/RatingDisplay";
+
+const PROMPTS = [
+  "I need a phone under ₹30,000 with a great camera and battery.",
+  "Wireless earbuds under ₹8,000 for daily commute and calls.",
+  "Laptop for college students under ₹60,000.",
+  "Smart TV under ₹40,000 for a small living room.",
+];
 
 export default function Recommend() {
   const [requirements, setRequirements] = useState("");
@@ -27,47 +36,61 @@ export default function Recommend() {
     : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 fade-up">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 fade-up">
       <div className="mb-8">
-        <div className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">AI recommendation</div>
-        <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight">
-          Describe what you need. We'll pick from <span className="italic text-accent">real</span> products only.
+        <div className="eyebrow mb-1">AI Recommendation</div>
+        <h1 className="font-display text-3xl sm:text-5xl font-bold tracking-[-0.02em] leading-[1.05]">
+          Describe what you need.{" "}
+          <span className="italic text-accent">We pick from real products only.</span>
         </h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-2xl leading-relaxed">
-          Gemini analyzes your requirement and chooses the best match among real Google Shopping results. It never
-          invents a product from training data.
+        <p className="text-base text-muted-foreground mt-3 max-w-2xl">
+          Our AI analyzes your requirement and chooses the best match among real Google Shopping results. It never invents a product from training data.
         </p>
       </div>
 
-      <form onSubmit={submit} className="space-y-4 border border-border rounded-sm p-6 bg-card">
+      <form onSubmit={submit} className="space-y-4 rounded-2xl border border-border bg-card p-6 sm:p-8 card-elevated">
         <div>
-          <label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">Your requirements</label>
+          <label className="eyebrow mb-2 block">What are you looking to buy?</label>
           <textarea
             data-testid="requirements-input"
             value={requirements}
             onChange={(e) => setRequirements(e.target.value)}
             rows={4}
             placeholder="e.g. Best noise cancelling headphones under ₹30,000 for daily commute and calls."
-            className="w-full mt-1 p-3 bg-background border border-border rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="w-full p-4 bg-background border border-border rounded-xl text-base leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-all"
           />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {PROMPTS.map((p) => (
+              <button
+                type="button"
+                key={p}
+                onClick={() => setRequirements(p)}
+                className="chip hover:bg-secondary hover:border-foreground/30 transition-colors"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
+
         <div>
-          <label className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">Optional search query (defaults to your requirements)</label>
+          <label className="eyebrow mb-2 block">Optional search query <span className="normal-case tracking-normal">(defaults to your requirements)</span></label>
           <input
             data-testid="query-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. noise cancelling headphones"
-            className="w-full mt-1 p-2.5 bg-background border border-border rounded-sm text-sm"
+            className="w-full p-3 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
         </div>
+
         <button
           type="submit"
           disabled={loading}
           data-testid="recommend-submit"
-          className="inline-flex items-center gap-2 px-5 py-3 bg-foreground text-background text-sm font-semibold rounded-sm hover:bg-accent transition-colors"
+          className="btn-primary"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
           Recommend from real products
         </button>
       </form>
@@ -77,68 +100,84 @@ export default function Recommend() {
       )}
 
       {result && !result.no_real_products && (
-        <div className="mt-8 space-y-6">
-          <div className="border border-border rounded-sm p-6 bg-card">
+        <div className="mt-10 space-y-6">
+          <div className="rounded-2xl border border-accent/30 bg-card p-6 sm:p-8 card-elevated relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-accent to-transparent" />
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="h-4 w-4 text-accent" />
-              <div className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">Recommended</div>
+              <span className="eyebrow">Best match</span>
             </div>
             {recProduct ? (
               <>
-                <Link to={`/product/${encodeURIComponent(recProduct.product_id)}`} className="hover:underline">
-                  <h3 className="font-display text-xl font-bold">{recProduct.product_name}</h3>
+                <Link to={`/product/${encodeURIComponent(recProduct.product_id)}`} className="hover:text-accent transition-colors">
+                  <h3 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">{recProduct.product_name}</h3>
                 </Link>
-                <div className="mt-1 text-sm text-muted-foreground">{recProduct.seller || "Seller not available"}</div>
-                <div className="mt-2 font-mono text-2xl font-bold">{formatINR(recProduct.current_price) || "Price N/A"}</div>
+                <div className="mt-2 flex items-center flex-wrap gap-3">
+                  {recProduct.seller && <span className="chip">{recProduct.seller}</span>}
+                  <RatingDisplay rating={recProduct.rating} reviewCount={recProduct.review_count} />
+                </div>
+                <div className="mt-4"><PriceBadge current={recProduct.current_price} original={recProduct.original_price} size="lg" /></div>
               </>
             ) : (
               <p className="text-sm italic">The model did not identify a specific product ID among candidates.</p>
             )}
+
             {result.recommendation?.why && (
-              <div className="mt-4 space-y-2">
-                <div className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">Why</div>
-                <p className="text-sm leading-relaxed">{result.recommendation.why}</p>
+              <div className="mt-6">
+                <div className="eyebrow mb-1">Why</div>
+                <p className="text-base leading-relaxed font-display">{result.recommendation.why}</p>
               </div>
             )}
-            <div className="grid md:grid-cols-2 gap-6 mt-4">
+
+            <div className="grid md:grid-cols-2 gap-6 mt-6">
               {Array.isArray(result.recommendation?.strengths) && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-mono mb-1">Strengths</div>
+                  <div className="eyebrow text-emerald-800 mb-1">Strengths</div>
                   <ul className="list-disc pl-5 text-sm space-y-1">{result.recommendation.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
                 </div>
               )}
               {Array.isArray(result.recommendation?.weaknesses) && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest text-rose-700 font-mono mb-1">Weaknesses</div>
+                  <div className="eyebrow text-rose-800 mb-1">Weaknesses</div>
                   <ul className="list-disc pl-5 text-sm space-y-1">{result.recommendation.weaknesses.map((s, i) => <li key={i}>{s}</li>)}</ul>
                 </div>
               )}
             </div>
+
             {result.recommendation?.price_assessment && (
-              <div className="mt-4">
-                <div className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-1">Price assessment</div>
+              <div className="mt-5">
+                <div className="eyebrow mb-1">Price assessment</div>
                 <p className="text-sm">{result.recommendation.price_assessment}</p>
               </div>
             )}
-            <div className="text-[10px] font-mono text-muted-foreground mt-4">
+
+            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-6">
               Grounded in {result.candidates.length} real candidates · Generated {relativeTime(result.generated_at)}
             </div>
           </div>
 
           <div>
-            <div className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Considered candidates (real)</div>
+            <div className="eyebrow mb-3">Also considered · {result.candidates.length} real candidates</div>
             <div className="grid md:grid-cols-2 gap-3">
               {result.candidates.map((c) => (
-                <Link key={c.product_id} to={`/product/${encodeURIComponent(c.product_id)}`} data-testid={`candidate-card-${c.product_id}`} className="flex items-center justify-between p-3 border border-border rounded-sm bg-card hover:bg-secondary/40 transition-colors">
+                <Link
+                  key={c.product_id}
+                  to={`/product/${encodeURIComponent(c.product_id)}`}
+                  data-testid={`candidate-card-${c.product_id}`}
+                  className="flex items-center justify-between gap-3 p-4 border border-border rounded-xl bg-card hover:border-foreground/30 hover:card-elevated transition-all"
+                >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold truncate">{c.product_name}</div>
-                    <div className="text-xs text-muted-foreground">{c.seller || "—"} · {formatINR(c.current_price) || "Price N/A"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {c.seller || "—"}
+                    </div>
+                    <div className="mt-2"><PriceBadge current={c.current_price} original={c.original_price} size="sm" /></div>
                   </div>
                   <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </Link>
               ))}
             </div>
-            <div className="mt-3"><ProvenanceBadge source="serpapi_google_shopping" retrievedAt={result.generated_at} /></div>
+            <div className="mt-4"><SourceBadge source="serpapi_google_shopping" retrievedAt={result.generated_at} /></div>
           </div>
         </div>
       )}

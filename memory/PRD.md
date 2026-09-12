@@ -41,3 +41,15 @@ SMART BUY helps users make real purchasing decisions in India. NON-NEGOTIABLE ma
 - Never fabricate products, reviews, ratings, prices, discounts, specifications, or price history
 - Every field missing from source = null / "Not available"
 - Gemini analyzes only what backend sends; the system prompt forbids inventing content
+
+## Iteration 2 — Premium visual redesign (2026-02)
+- Brand identity: SmartBuyLogo SVG (shopping bag + inset checkmark + emerald verification bead), favicon.svg, page title & OG metadata
+- Typography: Fraunces display serif, Inter body, JetBrains Mono for tabular numbers
+- Color system: warm ivory background, near-black foreground, refined coral accent, restrained emerald/amber/rose signals
+- Reusable primitives: TrustPill/LivePill, PriceBadge, RatingDisplay, DealBadge, SourceBadge, LoadingSkeleton, ProductCard
+- Home: premium hero with subtle grid + radial glow, real live snapshot preview card (honest skeleton when empty), 4 trust pillars, CTA
+- Search: card-elevated bar with inline submit, desktop filter sidebar + mobile filter drawer, skeleton loaders
+- Product: editorial gallery layout, tabular price, deal badge, real reviews section, AI take card with accent hairline
+- Compare: side-by-side with AI-pick highlight
+- Recommend: prompt chips, best-match card with accent hairline, candidate list
+- Mobile: no horizontal scroll at 390px, sticky glass header + bottom tab nav
