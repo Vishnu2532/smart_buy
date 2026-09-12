@@ -7,6 +7,7 @@ import EmptyState from "@/components/EmptyState";
 import SourceBadge from "@/components/ProvenanceBadge";
 import PriceBadge from "@/components/PriceBadge";
 import RatingDisplay from "@/components/RatingDisplay";
+import ModelPicker from "@/components/ModelPicker";
 
 const PROMPTS = [
   "I need a phone under ₹30,000 with a great camera and battery.",
@@ -21,12 +22,13 @@ export default function Recommend() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [sharing, setSharing] = useState(false);
+  const [model, setModel] = useState("gemini");
 
   const submit = (e) => {
     e.preventDefault();
     if (requirements.trim().length < 5) { toast.warning("Describe your needs in at least 5 characters."); return; }
     setLoading(true); setResult(null);
-    api.post("/recommend", { requirements: requirements.trim(), query: query.trim() || null })
+    api.post("/recommend", { requirements: requirements.trim(), query: query.trim() || null, model })
       .then((r) => setResult(r.data))
       .catch((e) => toast.error(e?.response?.data?.detail || "Recommendation failed"))
       .finally(() => setLoading(false));
@@ -117,6 +119,7 @@ export default function Recommend() {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
           Recommend from real products
         </button>
+        <ModelPicker value={model} onChange={setModel} className="ml-3 align-middle" />
       </form>
 
       {result && result.no_real_products && (

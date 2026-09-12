@@ -9,6 +9,7 @@ import EmptyState from "@/components/EmptyState";
 import PriceBadge from "@/components/PriceBadge";
 import RatingDisplay from "@/components/RatingDisplay";
 import DealBadge from "@/components/DealBadge";
+import ModelPicker from "@/components/ModelPicker";
 
 export default function ProductDetail() {
   const { productId } = useParams();
@@ -19,6 +20,7 @@ export default function ProductDetail() {
   const [analysis, setAnalysis] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [sourceNote, setSourceNote] = useState(null);
+  const [model, setModel] = useState("gemini");
 
   const load = () => {
     setLoading(true); setError(null);
@@ -45,7 +47,7 @@ export default function ProductDetail() {
 
   const analyze = () => {
     setAnalysisLoading(true); setAnalysis(null);
-    api.post(`/analyze-reviews`, { product_id: productId })
+    api.post(`/analyze-reviews`, { product_id: productId, model })
       .then((r) => setAnalysis(r.data))
       .catch((e) => toast.error(e?.response?.data?.detail || "Analysis failed"))
       .finally(() => setAnalysisLoading(false));
@@ -181,16 +183,19 @@ export default function ProductDetail() {
                 Fetch real reviews
               </button>
               {reviews.length >= 2 && (
-                <button
-                  type="button"
-                  onClick={analyze}
-                  disabled={analysisLoading}
-                  data-testid="analyze-reviews-btn"
-                  className="btn-primary text-xs"
-                >
-                  {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  AI analyze
-                </button>
+                <>
+                  <ModelPicker value={model} onChange={setModel} size="xs" />
+                  <button
+                    type="button"
+                    onClick={analyze}
+                    disabled={analysisLoading}
+                    data-testid="analyze-reviews-btn"
+                    className="btn-primary text-xs"
+                  >
+                    {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    AI analyze
+                  </button>
+                </>
               )}
             </div>
           }

@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Home, Search as SearchIcon, GitCompare, Sparkles } from "lucide-react";
+import { Home, Search as SearchIcon, GitCompare, Sparkles, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import SmartBuyLogo from "@/components/SmartBuyLogo";
 import { LivePill } from "@/components/TrustBadge";
@@ -10,6 +10,7 @@ const NAV = [
   { to: "/search", label: "Search", icon: SearchIcon },
   { to: "/compare", label: "Compare", icon: GitCompare },
   { to: "/recommend", label: "Recommend", icon: Sparkles },
+  { to: "/chat", label: "Chat", icon: MessageSquare },
 ];
 
 export default function Layout() {

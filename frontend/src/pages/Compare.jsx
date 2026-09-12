@@ -7,6 +7,7 @@ import EmptyState from "@/components/EmptyState";
 import SourceBadge from "@/components/ProvenanceBadge";
 import PriceBadge from "@/components/PriceBadge";
 import RatingDisplay from "@/components/RatingDisplay";
+import ModelPicker from "@/components/ModelPicker";
 
 export default function Compare() {
   const [items, setItems] = useState(() => {
@@ -15,6 +16,7 @@ export default function Compare() {
   const [verdict, setVerdict] = useState(null);
   const [loading, setLoading] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [model, setModel] = useState("gemini");
 
   const remove = (pid) => {
     const next = items.filter((x) => x.product_id !== pid);
@@ -28,7 +30,7 @@ export default function Compare() {
   const run = () => {
     if (items.length !== 2) return;
     setLoading(true); setVerdict(null);
-    api.post("/compare", { product_ids: items.map((x) => x.product_id) })
+    api.post("/compare", { product_ids: items.map((x) => x.product_id), model })
       .then((r) => setVerdict(r.data))
       .catch((e) => toast.error(e?.response?.data?.detail || "Comparison failed"))
       .finally(() => setLoading(false));
@@ -113,7 +115,7 @@ export default function Compare() {
       </div>
 
       {items.length === 2 && !verdict && (
-        <div className="mt-8">
+        <div className="mt-8 flex items-center gap-3 flex-wrap">
           <button
             type="button"
             onClick={run}
@@ -124,6 +126,7 @@ export default function Compare() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Run AI verdict
           </button>
+          <ModelPicker value={model} onChange={setModel} />
         </div>
       )}
 

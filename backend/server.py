@@ -191,15 +191,18 @@ def compute_deal_label(current: Optional[float], observations: list[dict]) -> di
 # ---------------------------------------------------------------------------
 class AnalyzeRequest(BaseModel):
     product_id: str
+    model: Optional[str] = Field(default="gemini", pattern=r"^(gemini|openai)$")
 
 
 class CompareRequest(BaseModel):
     product_ids: list[str] = Field(min_length=2, max_length=2)
+    model: Optional[str] = Field(default="gemini", pattern=r"^(gemini|openai)$")
 
 
 class RecommendRequest(BaseModel):
     requirements: str = Field(min_length=5, max_length=600)
     query: Optional[str] = Field(default=None, max_length=160)
+    model: Optional[str] = Field(default="gemini", pattern=r"^(gemini|openai)$")
 
 
 # ---------------------------------------------------------------------------
@@ -585,9 +588,9 @@ async def refresh_reviews(product_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Gemini via Emergent LLM key
+# LLM via Emergent Universal Key (Gemini + OpenAI)
 # ---------------------------------------------------------------------------
-GEMINI_SYSTEM = (
+SYSTEM_PROMPT = (
     "You are SMART BUY, an India-focused shopping analyst. HARD RULES:\n"
     "- Analyze ONLY the products and reviews supplied in the user message.\n"
     "- Never invent, fabricate, or imply reviews, prices, specifications, or ratings that were not supplied.\n"
@@ -596,8 +599,18 @@ GEMINI_SYSTEM = (
     "- Return a valid JSON object matching the requested schema. Do not include any prose outside JSON."
 )
 
+MODEL_MAP = {
+    "gemini": ("gemini", "gemini-2.5-pro"),
+    "openai": ("openai", "gpt-5.2"),
+}
 
-async def call_gemini_json(prompt: str, schema_hint: str) -> dict:
+
+def _model_label(model_key: str) -> str:
+    prov, name = MODEL_MAP.get(model_key, MODEL_MAP["gemini"])
+    return f"{prov}:{name}"
+
+
+async def call_llm_json(prompt: str, schema_hint: str, model_key: str = "gemini") -> dict:
     if not EMERGENT_LLM_KEY:
         raise HTTPException(503, "AI analysis is not configured (Emergent LLM key missing).")
     try:
@@ -605,22 +618,21 @@ async def call_gemini_json(prompt: str, schema_hint: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.exception("emergentintegrations import failure")
         raise HTTPException(500, f"AI integration unavailable: {exc}")
+    provider, model_name = MODEL_MAP.get(model_key, MODEL_MAP["gemini"])
     try:
         chat = (
-            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"smart-buy-{utcnow_iso()}", system_message=GEMINI_SYSTEM)
-            .with_model("gemini", "gemini-2.5-pro")
+            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"smart-buy-{utcnow_iso()}", system_message=SYSTEM_PROMPT)
+            .with_model(provider, model_name)
         )
         message = UserMessage(text=f"{schema_hint}\n\n{prompt}")
         reply = await chat.send_message(message)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Gemini call failed")
+        logger.exception("LLM call failed (%s)", model_key)
         raise HTTPException(502, f"AI analysis failed: {exc}")
     text = reply if isinstance(reply, str) else getattr(reply, "text", str(reply))
-    # Strip common ``` fences
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
-        # remove language tag on first line
         first_newline = cleaned.find("\n")
         if first_newline != -1:
             cleaned = cleaned[first_newline + 1 :]
@@ -629,7 +641,6 @@ async def call_gemini_json(prompt: str, schema_hint: str) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # Return the raw text so callers can decide
         return {"raw": text, "warning": "Model did not return valid JSON."}
 
 
@@ -673,13 +684,13 @@ async def analyze_reviews(req: AnalyzeRequest) -> dict:
         "\"positives\": [string], \"negatives\": [string], "
         "\"recurring_concerns\": [string], \"evidence\": [{\"claim\": string, \"review_indexes\": [int]}]}"
     )
-    result = await call_gemini_json(json.dumps(payload, default=str), schema)
+    result = await call_llm_json(json.dumps(payload, default=str), schema, req.model or "gemini")
     doc = {
         "product_id": req.product_id,
         "analysis": result,
         "review_count_analyzed": len(reviews),
         "generated_at": utcnow_iso(),
-        "model": "gemini-2.5-pro",
+        "model": _model_label(req.model or "gemini"),
     }
     await db.ai_analyses.insert_one(dict(doc))
     doc.pop("_id", None)
@@ -700,8 +711,13 @@ async def compare_products(req: CompareRequest) -> dict:
         "\"value_for_money\": string, \"insufficient_evidence\": boolean}"
     )
     payload = {"products": products}
-    result = await call_gemini_json(json.dumps(payload, default=str), schema)
-    return {"comparison": result, "generated_at": utcnow_iso(), "product_ids": req.product_ids}
+    result = await call_llm_json(json.dumps(payload, default=str), schema, req.model or "gemini")
+    return {
+        "comparison": result,
+        "generated_at": utcnow_iso(),
+        "product_ids": req.product_ids,
+        "model": _model_label(req.model or "gemini"),
+    }
 
 
 @api.post("/recommend")
@@ -740,12 +756,13 @@ async def recommend(req: RecommendRequest) -> dict:
             for p in products
         ],
     }
-    result = await call_gemini_json(json.dumps(payload, default=str), schema)
+    result = await call_llm_json(json.dumps(payload, default=str), schema, req.model or "gemini")
     return {
         "recommendation": result,
         "candidates": products,
         "query": query,
         "generated_at": utcnow_iso(),
+        "model": _model_label(req.model or "gemini"),
     }
 
 
@@ -797,6 +814,151 @@ async def get_share(share_id: str) -> dict:
     # Increment view counter (best-effort)
     await db.shares.update_one({"share_id": share_id}, {"$inc": {"views": 1}})
     return doc
+
+
+# ---------------------------------------------------------------------------
+# Ask SMART BUY — grounded conversational chat (streaming SSE)
+# ---------------------------------------------------------------------------
+from fastapi.responses import StreamingResponse
+
+CHAT_SYSTEM = (
+    "You are SMART BUY — an India-focused shopping analyst that ONLY grounds answers in real product "
+    "data supplied by the backend. HARD RULES:\n"
+    "- Never invent products, prices, ratings, reviews or specifications.\n"
+    "- If the supplied context is empty or insufficient, tell the user to search for real products first "
+    "(they can hit /search) and stop.\n"
+    "- Prices are in Indian Rupees (INR). Do not convert or estimate.\n"
+    "- Cite product names when comparing them so the user can trace claims.\n"
+    "- Be concise, practical and friendly. Do not use disclaimers about being an AI."
+)
+
+
+class ChatMessage(BaseModel):
+    role: str = Field(pattern=r"^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    messages: list[ChatMessage] = Field(min_length=1, max_length=40)
+    model: Optional[str] = Field(default="openai", pattern=r"^(gemini|openai)$")
+    product_ids: Optional[list[str]] = Field(default=None, max_length=8)
+    query: Optional[str] = Field(default=None, max_length=120)
+
+
+async def _build_chat_context(product_ids: Optional[list[str]], query: Optional[str]) -> dict:
+    """Fetch REAL product records for the chat context. No fabrication."""
+    ctx: dict = {"products": [], "reviews_available_for": [], "sources": []}
+    docs: list[dict] = []
+    if product_ids:
+        docs = await db.products.find({"product_id": {"$in": product_ids}}, {"_id": 0}).sort("last_seen_at", -1).to_list(6)
+    elif query:
+        # Tokenize the query, drop stop words / short tokens, OR-match against product_name.
+        stop = {"the","and","for","with","this","that","from","best","under","is","it","in","on","of","to","a","an","or","which","what","who","how","today","real","should","i","me","my","you","your","vs","versus","compare","between"}
+        tokens = [_re.sub(r"[^A-Za-z0-9]+", "", w) for w in (query or "").split()]
+        tokens = [t for t in tokens if len(t) >= 3 and t.lower() not in stop][:5]
+        if tokens:
+            regex = "|".join(_re.escape(t) for t in tokens)
+            docs = await db.products.find(
+                {"product_name": {"$regex": regex, "$options": "i"}}, {"_id": 0}
+            ).sort("last_seen_at", -1).to_list(6)
+        if not docs:
+            # Last-resort fallback: most recent 5 real products (still real, never fabricated)
+            docs = await db.products.find({}, {"_id": 0}).sort("last_seen_at", -1).to_list(5)
+    ctx["products"] = docs
+    for p in docs:
+        ctx["sources"].append({"product_id": p.get("product_id"), "seller": p.get("seller"), "source": p.get("source")})
+    pids = [p.get("product_id") for p in docs if p.get("product_id")]
+    if pids:
+        reviews = await db.reviews.find(
+            {"product_id": {"$in": pids}, "review_text": {"$ne": None}}, {"_id": 0}
+        ).limit(20).to_list(20)
+        ctx["reviews"] = reviews
+        ctx["reviews_available_for"] = sorted({r.get("product_id") for r in reviews})
+    return ctx
+
+
+@api.post("/chat")
+async def chat(req: ChatRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(503, "AI chat is not configured (Emergent LLM key missing).")
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("emergentintegrations import failure")
+        raise HTTPException(500, f"AI integration unavailable: {exc}")
+
+    provider, model_name = MODEL_MAP.get(req.model or "openai", MODEL_MAP["openai"])
+    session_id = req.session_id or f"chat-{_secrets.token_urlsafe(6)}"
+
+    # Persist inbound user message BEFORE calling the model (audit trail)
+    user_msgs = [m for m in req.messages if m.role == "user"]
+    if user_msgs:
+        await db.chat_messages.insert_one({
+            "session_id": session_id,
+            "role": "user",
+            "content": user_msgs[-1].content,
+            "created_at": utcnow_iso(),
+        })
+
+    ctx = await _build_chat_context(req.product_ids, req.query)
+
+    # Compose the "grounded context" system prefix; only real DB records are shared with the model.
+    grounding = (
+        "REAL PRODUCT CONTEXT (from SMART BUY database):\n"
+        + json.dumps(ctx, default=str)
+        + "\n\nUse ONLY the above facts. If empty, tell the user to search first."
+    )
+
+    # Build conversation as a single serialized prompt. LlmChat is stateless per instance,
+    # so we serialize prior turns; the last user turn is what we actually send.
+    history_lines = []
+    for m in req.messages[:-1]:
+        history_lines.append(f"{m.role.upper()}: {m.content}")
+    latest = req.messages[-1].content
+    combined = grounding + "\n\n" + ("\n".join(history_lines) + "\n" if history_lines else "") + "USER: " + latest
+
+    async def event_stream():
+        # SSE frames: "data: <json>\n\n". Client parses via EventSource / fetch reader.
+        yield f"data: {json.dumps({'type': 'meta', 'model': f'{provider}:{model_name}', 'session_id': session_id, 'context_products': len(ctx.get('products') or []) })}\n\n"
+        chat_client = (
+            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=CHAT_SYSTEM)
+            .with_model(provider, model_name)
+        )
+        assembled = []
+        try:
+            async for event in chat_client.stream_message(UserMessage(text=combined)):
+                if isinstance(event, TextDelta):
+                    assembled.append(event.content)
+                    yield f"data: {json.dumps({'type': 'delta', 'content': event.content})}\n\n"
+                elif isinstance(event, StreamDone):
+                    break
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Chat stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return
+        full = "".join(assembled)
+        # Persist assistant reply
+        await db.chat_messages.insert_one({
+            "session_id": session_id,
+            "role": "assistant",
+            "content": full,
+            "model": f"{provider}:{model_name}",
+            "created_at": utcnow_iso(),
+        })
+        yield f"data: {json.dumps({'type': 'done', 'full_text': full})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@api.get("/chat/sessions/{session_id}")
+async def get_chat_session(session_id: str) -> dict:
+    msgs = await db.chat_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    return {"session_id": session_id, "messages": msgs, "count": len(msgs)}
 
 
 app.include_router(api)
