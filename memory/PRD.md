@@ -53,3 +53,7 @@ SMART BUY helps users make real purchasing decisions in India. NON-NEGOTIABLE ma
 - Compare: side-by-side with AI-pick highlight
 - Recommend: prompt chips, best-match card with accent hairline, candidate list
 - Mobile: no horizontal scroll at 390px, sticky glass header + bottom tab nav
+
+## Iteration 3 — Amazon Reviews + Share Verdict (2026-02)
+- Amazon Reviews: `_is_amazon_seller` + `_extract_asin` (regex over /dp/, /gp/product/, /product-reviews/) + `_search_amazon_for_asin` (SerpApi `amazon` engine on amazon.in when ASIN not in URL) + `_fetch_amazon_reviews` (SerpApi `amazon_product` engine, reads `reviews_information.authors_reviews` and `other_countries_reviews` with real `author/rating/date/verified_purchase/text`). Refresh-reviews tries Amazon path first when seller matches, gracefully falls back to Google Product endpoint (still honest empty state if both unavailable). Verified end-to-end: Sony WH-1000XM5 on Amazon.in returned 2 real Indian buyer reviews (RajibMondal, Ambrish Doshi) that Gemini then analyzed with grounded evidence citations.
+- Share Verdict: POST /api/share (kind ∈ compare|recommend, arbitrary payload) → returns 12-char urlsafe share_id. GET /api/share/{id} increments a view counter. New page /s/:shareId (`SharedVerdict.jsx`) renders a read-only snapshot of the AI comparison or recommendation with brand header, evidence-grounded pros/cons, and a CTA back to /recommend. Share buttons added to Compare + Recommend result panels (copy link + navigator.share when available).

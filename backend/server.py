@@ -354,6 +354,128 @@ async def _fetch_reviews_from_serpapi(product_id: str) -> tuple[list[dict], Opti
     return reviews, agg_rating, agg_count, None
 
 
+# ---------------------------------------------------------------------------
+# Amazon reviews provider (real Amazon customer reviews via SerpApi)
+# ---------------------------------------------------------------------------
+import re as _re
+
+_ASIN_RE = _re.compile(r"/(?:dp|gp/product|product-reviews)/([A-Z0-9]{10})")
+
+
+def _extract_asin(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    m = _ASIN_RE.search(url)
+    return m.group(1) if m else None
+
+
+def _is_amazon_seller(product: dict) -> bool:
+    seller = (product.get("seller") or "").lower()
+    if "amazon" in seller:
+        return True
+    for u in (product.get("seller_url"), product.get("product_url")):
+        if u and "amazon." in u.lower():
+            return True
+    return False
+
+
+async def _search_amazon_for_asin(query: str) -> tuple[Optional[str], Optional[str]]:
+    """Search Amazon India by query and return (asin, error). Returns first organic result's ASIN."""
+    if not SERPAPI_KEY or not query:
+        return None, "Missing key or query"
+    params = {
+        "engine": "amazon",
+        "amazon_domain": "amazon.in",
+        "k": query,
+        "api_key": SERPAPI_KEY,
+        "output": "json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.get(SERP_URL, params=params)
+    except httpx.HTTPError as exc:
+        return None, f"Network error: {exc}"
+    if r.status_code >= 400:
+        try:
+            body = r.json()
+            msg = body.get("error") or r.text[:200]
+        except ValueError:
+            msg = r.text[:200]
+        return None, f"SerpApi error: {msg}"
+    data = r.json()
+    for item in (data.get("organic_results") or []):
+        asin = item.get("asin")
+        if asin and isinstance(asin, str) and len(asin) == 10:
+            return asin, None
+    return None, "No Amazon match found"
+
+
+async def _fetch_amazon_reviews(asin: str, product_id: str) -> tuple[list[dict], Optional[float], Optional[int], Optional[str]]:
+    """Fetch real Amazon customer reviews via SerpApi amazon_product engine."""
+    if not SERPAPI_KEY:
+        return [], None, None, "SerpApi key not configured."
+    params = {
+        "engine": "amazon_product",
+        "asin": asin,
+        "amazon_domain": "amazon.in",
+        "api_key": SERPAPI_KEY,
+        "output": "json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=45) as http:
+            r = await http.get(SERP_URL, params=params)
+    except httpx.HTTPError as exc:
+        return [], None, None, f"Network error: {exc}"
+    if r.status_code >= 400:
+        try:
+            body = r.json()
+            msg = body.get("error") or r.text[:200]
+        except ValueError:
+            msg = r.text[:200]
+        return [], None, None, f"SerpApi error: {msg}"
+    raw = r.json()
+    prod = raw.get("product_results") or {}
+    reviews_info = raw.get("reviews_information") or {}
+    # SerpApi keys are `authors_reviews` (India shoppers) and `other_countries_reviews`.
+    raw_reviews: list = []
+    for key in ("authors_reviews", "author_reviews", "top_reviews"):
+        val = reviews_info.get(key)
+        if isinstance(val, list):
+            raw_reviews.extend(val)
+    # Include non-India verified reviews only when we haven't found local ones,
+    # so English-first users get a signal.
+    if not raw_reviews:
+        for key in ("other_countries_reviews", "reviews_from_other_countries"):
+            val = reviews_info.get(key)
+            if isinstance(val, list):
+                raw_reviews.extend(val)
+    if not raw_reviews and isinstance(raw.get("reviews"), list):
+        raw_reviews = raw["reviews"]
+
+    reviews: list[dict] = []
+    for v in raw_reviews:
+        if not isinstance(v, dict):
+            continue
+        text = v.get("text") or v.get("body") or v.get("review") or v.get("snippet") or v.get("content")
+        if not text:
+            continue  # skip entries without real review text
+        reviews.append({
+            "product_id": product_id,
+            "reviewer_name": v.get("author") or v.get("profile_name") or v.get("user") or v.get("name") or None,
+            "rating": to_float(v.get("rating") or v.get("stars")),
+            "title": v.get("title") or None,
+            "review_text": text,
+            "review_date": v.get("date") or v.get("review_date") or None,
+            "source": "amazon_in",
+            "source_url": v.get("author_link") or v.get("link") or v.get("url") or None,
+            "verified_purchase": bool(v.get("verified_purchase") or v.get("verified")),
+            "retrieved_at": utcnow_iso(),
+        })
+    agg_rating = to_float(prod.get("rating") or reviews_info.get("rating"))
+    agg_count = to_int(prod.get("reviews") or prod.get("ratings_total") or reviews_info.get("total_reviews"))
+    return reviews, agg_rating, agg_count, None
+
+
 @api.get("/products/{product_id}")
 async def get_product(product_id: str) -> dict:
     product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
@@ -385,42 +507,79 @@ async def refresh_reviews(product_id: str) -> dict:
     product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found in stored data. Search for it first.")
-    reviews, agg_rating, agg_count, err = await _fetch_reviews_from_serpapi(product_id)
-    # Replace stored reviews for this product with the fresh, real set
+
+    reviews: list[dict] = []
+    agg_rating: Optional[float] = None
+    agg_count: Optional[int] = None
+    err: Optional[str] = None
+    source_used: Optional[str] = None
+    asin_used: Optional[str] = None
+
+    # 1) Amazon path — try when the product is Amazon-sold. Extract ASIN from any URL,
+    # or search Amazon.in by product name to find it.
+    if _is_amazon_seller(product):
+        asin = _extract_asin(product.get("seller_url")) or _extract_asin(product.get("product_url"))
+        if not asin and product.get("product_name"):
+            asin, _ = await _search_amazon_for_asin(product["product_name"])
+        if asin:
+            asin_used = asin
+            a_reviews, a_rating, a_count, a_err = await _fetch_amazon_reviews(asin, product_id)
+            if a_reviews:
+                reviews, agg_rating, agg_count = a_reviews, a_rating, a_count
+                source_used = "serpapi_amazon_reviews"
+            else:
+                err = a_err
+
+    # 2) Fallback to Google Product endpoint (currently deprecated by Google;
+    # returns a helpful error). Do NOT fabricate reviews.
+    if not reviews:
+        g_reviews, g_rating, g_count, g_err = await _fetch_reviews_from_serpapi(product_id)
+        if g_reviews:
+            reviews, agg_rating, agg_count = g_reviews, g_rating, g_count
+            source_used = "serpapi_google_product"
+        elif not err:
+            err = g_err
+
     if reviews:
         await db.reviews.delete_many({"product_id": product_id})
         await db.reviews.insert_many(reviews)
-    # Update aggregate rating/count if provider actually reports them
+
     updates: dict[str, Any] = {}
     if agg_rating is not None:
         updates["rating"] = agg_rating
     if agg_count is not None:
         updates["review_count"] = agg_count
+    if asin_used:
+        updates["amazon_asin"] = asin_used
     if updates:
         await db.products.update_one({"product_id": product_id}, {"$set": updates})
-    # Honest response about source availability. Google deprecated the public
-    # product-page review endpoint (SerpApi 'google_product' is discontinued),
-    # so full review text is often unavailable. We never fabricate reviews.
+
     source_unavailable = False
     friendly_note = None
     if err and not reviews:
         source_unavailable = True
-        # Normalize provider message
-        friendly_note = (
-            "No full-text reviews are currently available for this product from Google Shopping. "
-            "SMART BUY refuses to fabricate reviews, so this section stays empty until a real "
-            "review source is connected. Aggregate rating and review count (when reported by "
-            "Google Shopping) are still shown on the product page."
-        )
+        if _is_amazon_seller(product):
+            friendly_note = (
+                "Couldn't fetch real Amazon customer reviews for this product right now. "
+                "SMART BUY refuses to fabricate reviews, so this section stays empty until we can "
+                "verify a legitimate review source."
+            )
+        else:
+            friendly_note = (
+                "No full-text reviews are currently available from Google's product endpoint "
+                "(Google deprecated it). Aggregate rating and review count from Google Shopping are "
+                "still shown. Amazon-sold products will show real customer reviews automatically."
+            )
     return {
         "product_id": product_id,
         "fetched": len(reviews),
         "aggregate_rating": agg_rating,
         "aggregate_review_count": agg_count,
-        "source": "serpapi_google_product",
+        "source": source_used or "serpapi",
         "source_unavailable": source_unavailable,
         "note": friendly_note,
         "provider_error": err if source_unavailable else None,
+        "amazon_asin": asin_used,
         "retrieved_at": utcnow_iso(),
     }
 
@@ -597,6 +756,47 @@ async def recommend(req: RecommendRequest) -> dict:
 async def recent_products(limit: int = 12) -> dict:
     docs = await db.products.find({}, {"_id": 0}).sort("last_seen_at", -1).to_list(min(limit, 30))
     return {"count": len(docs), "products": docs}
+
+
+# ---------------------------------------------------------------------------
+# Share Verdict — public unlisted links for compare & recommend results
+# ---------------------------------------------------------------------------
+import secrets as _secrets
+
+
+class ShareCreate(BaseModel):
+    kind: str = Field(pattern=r"^(compare|recommend)$")
+    payload: dict
+
+
+def _new_share_id() -> str:
+    # 12-char urlsafe token → ~72 bits of entropy, plenty for unlisted links
+    return _secrets.token_urlsafe(9)
+
+
+@api.post("/share")
+async def create_share(req: ShareCreate) -> dict:
+    share_id = _new_share_id()
+    doc = {
+        "share_id": share_id,
+        "kind": req.kind,
+        "payload": req.payload,
+        "created_at": utcnow_iso(),
+        "views": 0,
+    }
+    await db.shares.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"share_id": share_id, "kind": req.kind, "created_at": doc["created_at"]}
+
+
+@api.get("/share/{share_id}")
+async def get_share(share_id: str) -> dict:
+    doc = await db.shares.find_one({"share_id": share_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "This shared verdict does not exist or was removed.")
+    # Increment view counter (best-effort)
+    await db.shares.update_one({"share_id": share_id}, {"$inc": {"views": 1}})
+    return doc
 
 
 app.include_router(api)

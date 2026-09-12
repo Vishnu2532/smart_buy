@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Sparkles, X, ArrowLeft, ShoppingBag, Check } from "lucide-react";
+import { Loader2, Sparkles, X, ArrowLeft, ShoppingBag, Check, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, relativeTime } from "@/lib/api";
 import EmptyState from "@/components/EmptyState";
@@ -14,6 +14,7 @@ export default function Compare() {
   });
   const [verdict, setVerdict] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const remove = (pid) => {
     const next = items.filter((x) => x.product_id !== pid);
@@ -31,6 +32,20 @@ export default function Compare() {
       .then((r) => setVerdict(r.data))
       .catch((e) => toast.error(e?.response?.data?.detail || "Comparison failed"))
       .finally(() => setLoading(false));
+  };
+
+  const share = () => {
+    if (!verdict) return;
+    setSharing(true);
+    api.post("/share", { kind: "compare", payload: { items, comparison: verdict.comparison, generated_at: verdict.generated_at } })
+      .then((r) => {
+        const url = `${window.location.origin}/s/${r.data.share_id}`;
+        if (navigator.clipboard) navigator.clipboard.writeText(url);
+        if (navigator.share) navigator.share({ title: "SMART BUY verdict", url }).catch(() => {});
+        toast.success("Public link copied", { description: url });
+      })
+      .catch((e) => toast.error(e?.response?.data?.detail || "Could not create share link"))
+      .finally(() => setSharing(false));
   };
 
   if (items.length === 0) {
@@ -151,8 +166,20 @@ export default function Compare() {
               <p className="text-sm">{verdict.comparison.value_for_money}</p>
             </div>
           )}
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground pt-2">
-            Generated {relativeTime(verdict.generated_at)}
+          <div className="flex items-center justify-between gap-4 pt-4 flex-wrap border-t border-border/70">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Generated {relativeTime(verdict.generated_at)}
+            </div>
+            <button
+              type="button"
+              onClick={share}
+              disabled={sharing}
+              data-testid="share-compare"
+              className="btn-secondary text-xs"
+            >
+              {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
+              Share verdict
+            </button>
           </div>
         </div>
       )}

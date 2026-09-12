@@ -7,6 +7,7 @@ import SearchResults from "@/pages/SearchResults";
 import ProductDetail from "@/pages/ProductDetail";
 import Compare from "@/pages/Compare";
 import Recommend from "@/pages/Recommend";
+import SharedVerdict from "@/pages/SharedVerdict";
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <Route path="/product/:productId" element={<ProductDetail />} />
             <Route path="/compare" element={<Compare />} />
             <Route path="/recommend" element={<Recommend />} />
+            <Route path="/s/:shareId" element={<SharedVerdict />} />
           </Route>
         </Routes>
       </BrowserRouter>

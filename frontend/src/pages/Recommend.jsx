@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, ArrowRight, Wand2 } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight, Wand2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { api, relativeTime } from "@/lib/api";
@@ -20,6 +20,7 @@ export default function Recommend() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [sharing, setSharing] = useState(false);
 
   const submit = (e) => {
     e.preventDefault();
@@ -29,6 +30,29 @@ export default function Recommend() {
       .then((r) => setResult(r.data))
       .catch((e) => toast.error(e?.response?.data?.detail || "Recommendation failed"))
       .finally(() => setLoading(false));
+  };
+
+  const share = () => {
+    if (!result || result.no_real_products) return;
+    setSharing(true);
+    api.post("/share", {
+      kind: "recommend",
+      payload: {
+        requirements: requirements.trim(),
+        query: query.trim() || null,
+        recommendation: result.recommendation,
+        candidates: result.candidates,
+        generated_at: result.generated_at,
+      },
+    })
+      .then((r) => {
+        const url = `${window.location.origin}/s/${r.data.share_id}`;
+        if (navigator.clipboard) navigator.clipboard.writeText(url);
+        if (navigator.share) navigator.share({ title: "SMART BUY recommendation", url }).catch(() => {});
+        toast.success("Public link copied", { description: url });
+      })
+      .catch((e) => toast.error(e?.response?.data?.detail || "Could not create share link"))
+      .finally(() => setSharing(false));
   };
 
   const recProduct = result?.recommendation?.recommended_product_id
@@ -151,8 +175,18 @@ export default function Recommend() {
               </div>
             )}
 
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-6">
-              Grounded in {result.candidates.length} real candidates · Generated {relativeTime(result.generated_at)}
+            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-6 flex items-center justify-between gap-4 flex-wrap">
+              <span>Grounded in {result.candidates.length} real candidates · Generated {relativeTime(result.generated_at)}</span>
+              <button
+                type="button"
+                onClick={share}
+                disabled={sharing}
+                data-testid="share-recommend"
+                className="btn-secondary text-xs normal-case tracking-normal"
+              >
+                {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
+                Share this
+              </button>
             </div>
           </div>
 
