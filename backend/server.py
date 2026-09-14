@@ -31,7 +31,8 @@ logger = logging.getLogger("smart_buy")
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "").strip()
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
 SERP_URL = "https://serpapi.com/search"
 
@@ -213,7 +214,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "serpapi_configured": bool(SERPAPI_KEY),
-        "llm_configured": bool(EMERGENT_LLM_KEY),
+        "llm_configured": bool(GEMINI_API_KEY or OPENAI_API_KEY),
         "server_time": utcnow_iso(),
     }
 
@@ -588,7 +589,7 @@ async def refresh_reviews(product_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# LLM via Emergent Universal Key (Gemini + OpenAI)
+# LLM providers (Gemini + OpenAI)
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = (
     "You are SMART BUY, an India-focused shopping analyst. HARD RULES:\n"
@@ -611,25 +612,11 @@ def _model_label(model_key: str) -> str:
 
 
 async def call_llm_json(prompt: str, schema_hint: str, model_key: str = "gemini") -> dict:
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(503, "AI analysis is not configured (Emergent LLM key missing).")
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("emergentintegrations import failure")
-        raise HTTPException(500, f"AI integration unavailable: {exc}")
-    provider, model_name = MODEL_MAP.get(model_key, MODEL_MAP["gemini"])
-    try:
-        chat = (
-            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"smart-buy-{utcnow_iso()}", system_message=SYSTEM_PROMPT)
-            .with_model(provider, model_name)
-        )
-        message = UserMessage(text=f"{schema_hint}\n\n{prompt}")
-        reply = await chat.send_message(message)
+        text = await _call_llm_text(f"{schema_hint}\n\n{prompt}", model_key, SYSTEM_PROMPT)
     except Exception as exc:  # noqa: BLE001
         logger.exception("LLM call failed (%s)", model_key)
         raise HTTPException(502, f"AI analysis failed: {exc}")
-    text = reply if isinstance(reply, str) else getattr(reply, "text", str(reply))
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
@@ -642,6 +629,40 @@ async def call_llm_json(prompt: str, schema_hint: str, model_key: str = "gemini"
         return json.loads(cleaned)
     except json.JSONDecodeError:
         return {"raw": text, "warning": "Model did not return valid JSON."}
+
+
+async def _call_llm_text(prompt: str, model_key: str, system_prompt: str) -> str:
+    provider, model_name = MODEL_MAP.get(model_key, MODEL_MAP["gemini"])
+    if provider == "gemini":
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        }
+        async with httpx.AsyncClient(timeout=90) as http:
+            response = await http.post(url, params={"key": GEMINI_API_KEY}, json=payload)
+        response.raise_for_status()
+        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    async with httpx.AsyncClient(timeout=90) as http:
+        response = await http.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            json=payload,
+        )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
 
 @api.post("/analyze-reviews")
@@ -880,14 +901,6 @@ async def _build_chat_context(product_ids: Optional[list[str]], query: Optional[
 
 @api.post("/chat")
 async def chat(req: ChatRequest):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(503, "AI chat is not configured (Emergent LLM key missing).")
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("emergentintegrations import failure")
-        raise HTTPException(500, f"AI integration unavailable: {exc}")
-
     provider, model_name = MODEL_MAP.get(req.model or "openai", MODEL_MAP["openai"])
     session_id = req.session_id or f"chat-{_secrets.token_urlsafe(6)}"
 
@@ -921,23 +934,13 @@ async def chat(req: ChatRequest):
     async def event_stream():
         # SSE frames: "data: <json>\n\n". Client parses via EventSource / fetch reader.
         yield f"data: {json.dumps({'type': 'meta', 'model': f'{provider}:{model_name}', 'session_id': session_id, 'context_products': len(ctx.get('products') or []) })}\n\n"
-        chat_client = (
-            LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=CHAT_SYSTEM)
-            .with_model(provider, model_name)
-        )
-        assembled = []
         try:
-            async for event in chat_client.stream_message(UserMessage(text=combined)):
-                if isinstance(event, TextDelta):
-                    assembled.append(event.content)
-                    yield f"data: {json.dumps({'type': 'delta', 'content': event.content})}\n\n"
-                elif isinstance(event, StreamDone):
-                    break
+            full = await _call_llm_text(combined, req.model or "openai", CHAT_SYSTEM)
+            yield f"data: {json.dumps({'type': 'delta', 'content': full})}\n\n"
         except Exception as exc:  # noqa: BLE001
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
             return
-        full = "".join(assembled)
         # Persist assistant reply
         await db.chat_messages.insert_one({
             "session_id": session_id,
